@@ -1,93 +1,112 @@
 import requests
 from bs4 import BeautifulSoup
 from datetime import datetime
+import urllib.parse
 
 def get_login_page(session, login_page_url):
     """
-    Fetches the login page and extracts the CSRF token.
-
-    Args:
-        session (requests.Session): The session object.
-        login_page_url (str): URL of the login page.
-
-    Returns:
-        str: CSRF token if successful, None otherwise.
+    Gets the login page and extracts the CSRF token.
     """
     try:
-        response = session.get(login_page_url)
-        response.raise_for_status()
-
+        # Get the login page with the proper OAuth parameters
+        initial_url = 'https://auth.buildinglink.com/Account/Login?ReturnUrl=%2Fconnect%2Fauthorize%2Fcallback%3Fclient_id%3Dbl-web%26response_mode%3Dform_post%26response_type%3Dcode%2520id_token%2520token%26scope%3Dopenid%2520profile%2520groups%2520buildinglink%2520offline_access%2520uuids'
+        
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Safari/605.1.15',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+            'Accept-Language': 'en-US,en;q=0.9',
+            'Upgrade-Insecure-Requests': '1'
+        }
+        
+        response = session.get(initial_url, headers=headers)
+        print(f"Login page status: {response.status_code}")
+        
+        # Extract CSRF token from the HTML
+        from bs4 import BeautifulSoup
         soup = BeautifulSoup(response.text, 'html.parser')
         csrf_input = soup.find('input', {'name': '__RequestVerificationToken'})
-        if csrf_input and csrf_input.get('value'):
-            csrf_token = csrf_input['value']
-            return csrf_token
+        
+        if csrf_input:
+            csrf_token = csrf_input.get('value')
         else:
-            print("CSRF token not found on the login page.")
-            return None
+            # Fallback to antiforgery cookie
+            csrf_token = session.cookies.get('.AspNetCore.Antiforgery.I_06S-EykLg')
+            
+        return csrf_token
+        
     except Exception as e:
-        print(f"Error fetching login page: {e}")
+        print(f"Error getting login page: {e}")
         return None
 
 def login(session, login_url, username, password, csrf_token):
     """
-    Submits the login form with credentials and CSRF token.
-
-    Args:
-        session (requests.Session): The session object.
-        login_url (str): URL to submit the login form.
-        username (str): Username for login.
-        password (str): Password for login.
-        csrf_token (str): CSRF token extracted from login page.
-
-    Returns:
-        bool: True if login is successful, False otherwise.
+    Performs the login request with the provided credentials.
     """
-    # Add headers to mimic a browser
-    headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-        'Accept-Language': 'en-US,en;q=0.5',
-        'Content-Type': 'application/x-www-form-urlencoded',
-        'Origin': 'https://www.buildinglink.com',
-        'Referer': login_url
-    }
-
-    payload = {
-        "Username": username,
-        "Password": password,
-        "__RequestVerificationToken": csrf_token,
-        "ReturnUrl": "/connect/authorize/callback?client_id=bl-web&response_mode=form_post&response_type=code+id_token&scope=openid+profile+email+bl-api&state=OpenIdConnect.AuthenticationProperties%3D&nonce=",
-        "RememberLogin": "false"
-    }
-
     try:
-        response = session.post(login_url, data=payload, headers=headers, allow_redirects=False)
+        # Get the initial login page with ReturnUrl
+        initial_url = 'https://auth.buildinglink.com/Account/Login?ReturnUrl=%2Fconnect%2Fauthorize%2Fcallback%3Fclient_id%3Dbl-web%26response_mode%3Dform_post%26response_type%3Dcode%2520id_token%2520token%26scope%3Dopenid%2520profile%2520groups%2520buildinglink%2520offline_access%2520uuids'
         
-        # Debug information
-        print(f"Status code: {response.status_code}")
+        # Prepare the login data - note we're using Input. prefix again
+        login_data = {
+            'Input.Username': username,
+            'Input.Password': password,
+            'Input.RememberLogin': 'false',
+            '__RequestVerificationToken': csrf_token,
+            'ReturnUrl': '/connect/authorize/callback?client_id=bl-web&response_mode=form_post&response_type=code%20id_token%20token&scope=openid%20profile%20groups%20buildinglink%20offline_access%20uuids'
+        }
+
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Safari/605.1.15',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+            'Accept-Language': 'en-US,en;q=0.9',
+            'Accept-Encoding': 'gzip, deflate, br',
+            'Content-Type': 'application/x-www-form-urlencoded',
+            'Origin': 'https://auth.buildinglink.com',
+            'Referer': initial_url,
+            'Connection': 'keep-alive',
+            'Host': 'auth.buildinglink.com',
+            'Sec-Fetch-Site': 'same-origin',
+            'Sec-Fetch-Mode': 'navigate',
+            'Sec-Fetch-User': '?1',
+            'Sec-Fetch-Dest': 'document',
+            'Upgrade-Insecure-Requests': '1'
+        }
+
+        # Add the antiforgery cookie explicitly
+        antiforgery_cookie = session.cookies.get('.AspNetCore.Antiforgery.I_06S-EykLg')
+        if antiforgery_cookie:
+            session.cookies.set('.AspNetCore.Antiforgery.I_06S-EykLg', antiforgery_cookie)
+
+        print("\nSending login request...")
+        print(f"URL: {login_url}")
+        print(f"Antiforgery cookie: {antiforgery_cookie}")
+        print(f"CSRF token: {csrf_token}")
         
-        # Check response content for login failure indicators
-        response_text = response.text.lower()
-        if ("invalid username or password" in response_text or 
-            "incorrect credentials" in response_text or
-            "login failed" in response_text or
-            'class="validation-summary-errors"' in response.text):
-            print("Login failed - Invalid credentials")
-            return False
+        # Make the login request
+        response = session.post(
+            login_url,
+            data=login_data,
+            headers=headers,
+            allow_redirects=True
+        )
+        
+        print(f"Login response status: {response.status_code}")
+        print(f"Final URL: {response.url}")
+        
+        # Save response for debugging
+        with open("login_response.html", "w", encoding='utf-8') as f:
+            f.write(response.text)
             
-        # Check if we're actually logged in by looking for success indicators
-        if response.status_code == 302:  # Successful login usually redirects
-            redirect_url = response.headers.get('Location', '')
-            if 'connect/authorize' in redirect_url or 'dashboard' in redirect_url:
-                print("Login successful - Proper redirect detected")
-                return True
-        
-        print("Login failed - Unexpected response")
-        return False
+        # Print response headers for debugging
+        print("\nResponse headers:")
+        for header, value in response.headers.items():
+            print(f"{header}: {value}")
+            
+        # Check if we got redirected to the success page
+        return 'buildinglink.com/v2/' in response.url or response.status_code == 302
         
     except Exception as e:
-        print(f"Error during login: {e}")
+        print(f"Login error: {e}")
         return False
 
 def access_amenity_reservations(session):
@@ -166,4 +185,42 @@ def make_tennis_court_reservation(session, selected_date, selected_time):
     for elem in form_elements[:5]:  # Print first 5 elements
         print(f"- {elem.name}: {elem.get('id', 'No ID')} {elem.get('name', 'No name')}")
     
-    return True
+    # Find the form and extract necessary hidden fields
+    form = soup.find('form', id='form1')
+    if not form:
+        print("Reservation form not found")
+        return False
+    
+    # Extract VIEWSTATE and other ASP.NET hidden fields
+    hidden_fields = {}
+    for hidden in form.find_all('input', type='hidden'):
+        hidden_fields[hidden.get('name')] = hidden.get('value')
+    
+    # Prepare the reservation data
+    reservation_data = {
+        **hidden_fields,  # Include all hidden fields
+        'ctl00$ContentPlaceHolder1$StartTime': selected_time,
+        'ctl00$ContentPlaceHolder1$Duration': '60',  # Assuming 1-hour reservation
+        'ctl00$ContentPlaceHolder1$Notes': '',  # Optional notes
+        'ctl00$ContentPlaceHolder1$btnReserve': 'Reserve'
+    }
+    
+    # Submit the reservation
+    headers['Referer'] = tennis_url
+    headers['Content-Type'] = 'application/x-www-form-urlencoded'
+    
+    response = session.post(tennis_url, data=reservation_data, headers=headers)
+    print(f"\nReservation submission status: {response.status_code}")
+    
+    # Save the response for debugging
+    with open("reservation_response.html", "w") as f:
+        f.write(response.text)
+    print(f"Reservation response saved to reservation_response.html")
+    
+    # Check for success indicators in the response
+    if "successfully" in response.text.lower() or "confirmed" in response.text.lower():
+        print("Reservation appears to be successful!")
+        return True
+    else:
+        print("Reservation might have failed. Check reservation_response.html for details")
+        return False

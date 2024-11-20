@@ -18,6 +18,14 @@ def main():
     print(f"Password loaded: {os.getenv('BUILDINGLINK_PASSWORD')} (length: {len(os.getenv('BUILDINGLINK_PASSWORD') or '')}")
 
     session = requests.Session()
+    session.headers.update({
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+        'Accept-Language': 'en-US,en;q=0.5',
+        'Accept-Encoding': 'gzip, deflate, br',
+        'Connection': 'keep-alive',
+        'Upgrade-Insecure-Requests': '1'
+    })
 
     # URLs and credentials
     login_page_url = "https://auth.buildinglink.com/Account/Login?ReturnUrl=%2Fconnect%2Fauthorize..."
@@ -51,6 +59,19 @@ def main():
     if not access_amenity_reservations(session):
         print("Failed to access the Amenity Reservations page. Exiting.")
         return
+    
+    # Add a verification step and potential re-login
+    response = session.get('https://www.buildinglink.com/V2/Tenant/Amenities/CalendarView.aspx')
+    if response.status_code != 200:
+        print("Session appears to be invalid, attempting to re-login...")
+        # Re-login
+        csrf_token = get_login_page(session, login_page_url)
+        if not login(session, login_url, username, password, csrf_token):
+            print("Re-login failed. Exiting.")
+            return
+        if not access_amenity_reservations(session):
+            print("Failed to access the Amenity Reservations page after re-login. Exiting.")
+            return
 
     # Calculate a valid future date (e.g., next available Saturday)
     today = datetime.now()
