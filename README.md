@@ -2,7 +2,7 @@
 
 ## Introduction
 
-This project automates the process of logging into BuildingLink and making reservations for amenities like the Tennis Court. It utilizes Python's `requests` and `BeautifulSoup` libraries to handle web interactions.
+This project automates the process of logging into BuildingLink and making reservations for the tennis court. It utilizes Python's `requests` and `BeautifulSoup` libraries to handle web interactions.
 
 ## Features
 
